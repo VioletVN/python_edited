@@ -263,8 +263,27 @@ class Mario:
                           self.vel_x < 0):
                         self.x = tile_x + TILE_SIZE
                 
-                # Kiểm tra va chạm với quái vật (mất 1 mạng)
-                if tile in ENEMY_TILES:
+                # Kiểm tra va chạm với quái vật
+                if tile == 'V':
+                    if self.check_collision_with_tile(tile_x, tile_y):
+                        # Nếu dẫm từ trên xuống Goomba -> tiêu diệt và +1 mạng
+                        if self.vel_y > 0 and (self.y + self.height - self.vel_y) <= tile_y + 5:
+                            # Xóa Goomba khỏi map
+                            level_map[row_i] = level_map[row_i][:col_i] + '.' + level_map[row_i][col_i+1:]
+                            # Nảy lên một chút
+                            self.vel_y = -self.jump_power * 0.5
+                            # Cộng mạng
+                            lives += 1
+                            print(f"✅ Dẫm Goomba tại ({col_i}, {row_i})! +1 mạng. Còn lại: {lives}")
+                            # Âm thanh feedback (tận dụng coin nếu không có âm riêng)
+                            if sound_coin:
+                                sound_coin.play()
+                        else:
+                            print(f"💥 Va chạm với Goomba tại ({col_i}, {row_i})!")
+                            if sound_death:
+                                sound_death.play()
+                            return False  # Mất mạng nếu không dẫm từ trên
+                elif tile in ['C', 'A']:
                     if self.check_collision_with_tile(tile_x, tile_y):
                         print(f"💥 Va chạm với quái vật tại ({col_i}, {row_i})!")
                         if sound_death:
