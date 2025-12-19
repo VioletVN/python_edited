@@ -13,7 +13,7 @@ MARIO_IMAGES_DIR = os.path.join(BASE_DIR, "Mario", "images", "Mario")
 SCREEN_WIDTH = 1400
 SCREEN_HEIGHT = 600
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Mario Game")
+pygame.display.set_caption("Mario Game By Team 4")
 clock = pygame.time.Clock()
 
 WHITE = (255, 255, 255)
