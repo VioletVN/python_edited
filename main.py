@@ -118,6 +118,16 @@ except Exception as e:
     mario_image = pygame.Surface((40, 60))
     mario_image.fill((200, 0, 0))
 
+# Tải ảnh nền background.png
+try:
+    BG_PATH = os.path.join(BASE_DIR, "background.png")
+    background_image = pygame.image.load(BG_PATH).convert()
+    background_image = pygame.transform.scale(background_image, (SCREEN_WIDTH, SCREEN_HEIGHT))
+    print("✓ Đã tải: background.png")
+except Exception as e:
+    print(f"⚠️  Không tìm thấy background.png: {e}")
+    background_image = None
+
 def load_sound(filename):
     try:
         filepath = os.path.join(SOUNDS_DIR, filename)
@@ -385,9 +395,11 @@ def draw_hud():
     screen.blit(hud_surface, (0, 0))
 
 def draw_game(mario):
-    screen.fill(BLUE)
-    
-    draw_parallax_background()
+    if 'background_image' in globals() and background_image:
+        screen.blit(background_image, (0, 0))
+    else:
+        screen.fill(BLUE)
+        draw_parallax_background()
     draw_map()
     mario.draw(screen, camera_x, camera_y)
     draw_hud()
