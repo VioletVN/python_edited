@@ -41,6 +41,9 @@ level = 1
 game_over = False
 paused = False
 
+# Điểm cần đạt để thắng (win)
+WIN_SCORE = 760
+
 TILE_SIZE = 30
 MAP_WIDTH = 1400
 MAP_HEIGHT = 600
@@ -135,7 +138,7 @@ def load_sound(filename):
             print(f"⚠️  Không tìm thấy âm thanh: {filepath}")
             return None
         sound = pygame.mixer.Sound(filepath)
-        print(f"✓ Đã tải âm thanh: {filename}")
+        print(f"✓ Đã tải ��m thanh: {filename}")
         return sound
     except Exception as e:
         print(f"❌ Lỗi tải âm thanh {filename}: {e}")
@@ -225,43 +228,55 @@ class Mario:
             for col_i, tile in enumerate(row):
                 tile_x = col_i * TILE_SIZE
                 tile_y = row_i * TILE_SIZE
+
+                # Xác định hitbox của tile. Với 'P' (cột xanh), hitbox cao 3 ô và bắt đầu từ tile_y - 2*TILE_SIZE
+                if tile == 'P':
+                    solid_tx = tile_x
+                    solid_ty = tile_y - 2 * TILE_SIZE
+                    solid_tw = TILE_SIZE
+                    solid_th = 3 * TILE_SIZE
+                else:
+                    solid_tx = tile_x
+                    solid_ty = tile_y
+                    solid_tw = TILE_SIZE
+                    solid_th = TILE_SIZE
                 
                 # Kiểm tra va chạm với các tile cứng (đất, cột, thùng, v.v.)
                 if tile in SOLID_TILES:
-                    # Va chạm từ trên
-                    if (self.x + self.width > tile_x and 
-                        self.x < tile_x + TILE_SIZE and
-                        self.y + self.height > tile_y and 
-                        self.y + self.height < tile_y + TILE_SIZE and
+                    # Va chạm từ trên (rơi xuống)
+                    if (self.x + self.width > solid_tx and 
+                        self.x < solid_tx + solid_tw and
+                        self.y + self.height > solid_ty and 
+                        self.y + self.height < solid_ty + solid_th and
                         self.vel_y >= 0):
-                        self.y = tile_y - self.height
+                        self.y = solid_ty - self.height
                         self.vel_y = 0
                         self.on_ground = True
                     
-                    # Va chạm từ dưới
-                    elif (self.x + self.width > tile_x and 
-                          self.x < tile_x + TILE_SIZE and
-                          self.y < tile_y + TILE_SIZE and 
-                          self.y + self.height > tile_y and
+                    # Va chạm từ dưới (nhảy lên)
+                    elif (self.x + self.width > solid_tx and 
+                          self.x < solid_tx + solid_tw and
+                          self.y < solid_ty + solid_th and 
+                          self.y + self.height > solid_ty and
                           self.vel_y < 0):
-                        self.y = tile_y + TILE_SIZE
+                        self.y = solid_ty + solid_th
                         self.vel_y = 0
                     
                     # Va chạm từ trái
-                    elif (self.x + self.width > tile_x and 
-                          self.x + self.width < tile_x + TILE_SIZE and
-                          self.y + self.height > tile_y and 
-                          self.y < tile_y + TILE_SIZE and
+                    elif (self.x + self.width > solid_tx and 
+                          self.x + self.width < solid_tx + solid_tw and
+                          self.y + self.height > solid_ty and 
+                          self.y < solid_ty + solid_th and
                           self.vel_x > 0):
-                        self.x = tile_x - self.width
+                        self.x = solid_tx - self.width
                     
                     # Va chạm từ phải
-                    elif (self.x > tile_x and 
-                          self.x < tile_x + TILE_SIZE and
-                          self.y + self.height > tile_y and 
-                          self.y < tile_y + TILE_SIZE and
+                    elif (self.x > solid_tx and 
+                          self.x < solid_tx + solid_tw and
+                          self.y + self.height > solid_ty and 
+                          self.y < solid_ty + solid_th and
                           self.vel_x < 0):
-                        self.x = tile_x + TILE_SIZE
+                        self.x = solid_tx + solid_tw
                 
                 # Kiểm tra va chạm với quái vật
                 if tile == 'V':
@@ -456,7 +471,7 @@ def draw_game_over():
     screen.blit(restart_text, restart_text.get_rect(center=(SCREEN_WIDTH // 2, 320)))
     
     menu_text = font_mid.render("Press M for Menu", True, WHITE)
-    screen.blit(menu_text, menu_text.get_rect(center=(SCREEN_WIDTH // 2, 380)))
+    screen.blit(menu_text, screen.blit(menu_text, menu_text.get_rect(center=(SCREEN_WIDTH // 2, 380))))
 
 def draw_level_complete():
     screen.fill(BLUE)
@@ -568,9 +583,12 @@ def update_game(mario):
         camera_x = mario.x - SCREEN_WIDTH // 3
         camera_x = max(0, min(camera_x, MAP_WIDTH - SCREEN_WIDTH))
         
-        if score % 5000 == 0 and score > 0:
+        # Thắng khi đạt đủ điểm mục tiêu
+        if score >= WIN_SCORE:
             current_state = GameState.LEVEL_COMPLETE
-            print("🎉 Level Complete!")
+            if sound_levelend:
+                sound_levelend.play()
+            print("🎉 Level Complete! Đã đạt đủ điểm để thắng.")
 
 def draw_frame(mario):
     if current_state == GameState.MENU:
