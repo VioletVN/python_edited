@@ -41,7 +41,6 @@ level = 1
 game_over = False
 paused = False
 
-# Điểm cần đạt để thắng (win)
 WIN_SCORE = 760
 
 TILE_SIZE = 30
@@ -74,12 +73,14 @@ level_map = [
 camera_x = 0
 camera_y = 0
 
-# Danh sách các tile có vật lý (va chạm)
-SOLID_TILES = ['W', 'P', 'T', 'B', 'H', 'O']  # Đất, cột, thùng, bánh mì, hộp quà, ống sắt
-# Danh sách các tile quái vật
-ENEMY_TILES = ['V', 'C', 'A']  # Goombas, cây ăn thịt, quái vật
-# Danh sách các tile có thể nhặt
-COLLECTIBLE_TILES = ['X', 'J']  # Xu, hoa
+goombas = []
+
+
+SOLID_TILES = ['W', 'P', 'T', 'B', 'H', 'O'] 
+
+ENEMY_TILES = ['C', 'A']
+
+COLLECTIBLE_TILES = ['X', 'J']  
 
 def load_sprite(filename, width=TILE_SIZE, height=TILE_SIZE):
     try:
@@ -121,7 +122,23 @@ except Exception as e:
     mario_image = pygame.Surface((40, 60))
     mario_image.fill((200, 0, 0))
 
-# Tải ảnh nền background.png
+# Load Mario animation frames
+try:
+    mario_st_frame = pygame.image.load(os.path.join(MARIO_IMAGES_DIR, "mario_st.png")).convert_alpha()
+    mario_st_frame = pygame.transform.scale(mario_st_frame, (40, 60))
+    mario_walk_frames = []
+    for fname in ["mario_move0.png", "mario_move1.png", "mario_move2.png"]:
+        img = pygame.image.load(os.path.join(MARIO_IMAGES_DIR, fname)).convert_alpha()
+        mario_walk_frames.append(pygame.transform.scale(img, (40, 60)))
+    mario_jump_frame = pygame.image.load(os.path.join(MARIO_IMAGES_DIR, "mario_jump.png")).convert_alpha()
+    mario_jump_frame = pygame.transform.scale(mario_jump_frame, (40, 60))
+    print("✓ Đã tải bộ ảnh animation của Mario")
+except Exception as e:
+    print(f"⚠️  Không đủ ảnh animation Mario: {e}")
+    mario_st_frame = mario_image
+    mario_walk_frames = [mario_image]
+    mario_jump_frame = mario_image
+
 try:
     BG_PATH = os.path.join(BASE_DIR, "background.png")
     background_image = pygame.image.load(BG_PATH).convert()
@@ -170,6 +187,52 @@ if load_music("overworld.wav"):
 
 print("=" * 50 + "\n")
 
+class Goomba:
+    def __init__(self, x, y, move_right=True):
+        self.rect = pygame.Rect(x, y, 30, 30)
+        self.vel_x = 1 if move_right else -1
+        self.image = sprites['goombas']
+        self.is_dead = False
+        self.dead_timer = 0
+
+    def update(self, level_map):
+        if self.is_dead:
+            self.dead_timer -= 1
+            return "dead" if self.dead_timer <= 0 else "dying"
+
+        # Di chuyển
+        self.rect.x += self.vel_x
+
+        # --- XỬ LÝ QUAY ĐẦU ---
+        # 1. Kiểm tra va chạm tường (Wall)
+        # Tính toán ô lưới (grid) tại vị trí đầu của Goomba
+        if self.vel_x > 0:
+            col_check = int((self.rect.right + 2) // TILE_SIZE) # Nhìn về phía trước bên phải
+        else:
+            col_check = int((self.rect.left - 2) // TILE_SIZE) # Nhìn về phía trước bên trái
+        
+        row_center = int(self.rect.centery // TILE_SIZE)
+        row_bottom = int((self.rect.bottom + 2) // TILE_SIZE) # Nhìn xuống dưới chân
+
+        # Nếu đi ra ngoài map -> quay đầu
+        if col_check < 0 or col_check >= len(level_map[0]):
+            self.vel_x *= -1
+            return "alive"
+
+        # Nếu gặp tường -> quay đầu
+        if level_map[row_center][col_check] in SOLID_TILES:
+            self.vel_x *= -1
+        
+        # 2. Kiểm tra hết đất (Cliff) -> quay đầu
+        # Nếu ô bên dưới chân (phía trước) không phải là vật rắn -> quay đầu
+        elif row_bottom < len(level_map) and level_map[row_bottom][col_check] not in SOLID_TILES:
+            self.vel_x *= -1
+
+        return "alive"
+
+    def draw(self, surface, camera_x, camera_y):
+        surface.blit(self.image, (self.rect.x - camera_x, self.rect.y - camera_y))
+
 class Mario:
     def __init__(self, x, y):
         self.x = x
@@ -184,6 +247,12 @@ class Mario:
         self.jump_power = JUMP_POWER
         self.gravity = GRAVITY
         self.collected_coins = 0
+        self.is_flying = False
+        self.flight_timer = 0
+        # Animation state
+        self.anim_index = 0
+        self.anim_timer = 0
+        self.anim_delay = 8
         
     def handle_input(self):
         keys = pygame.key.get_pressed()
@@ -197,7 +266,12 @@ class Mario:
         else:
             self.vel_x = 0
         
-        if keys[pygame.K_SPACE] and self.on_ground:
+        if self.is_flying:
+            if keys[pygame.K_SPACE] or keys[pygame.K_UP]:
+                self.vel_y = -self.move_speed
+            elif keys[pygame.K_DOWN]:
+                self.vel_y = self.move_speed
+        elif keys[pygame.K_SPACE] and self.on_ground:
             self.vel_y = -self.jump_power
             self.on_ground = False
             if sound_jump:
@@ -213,7 +287,13 @@ class Mario:
     def update(self):
         global score, lives, current_state, game_over
         
-        self.vel_y += self.gravity
+        if not self.is_flying:
+            self.vel_y += self.gravity
+        else:
+            self.vel_y *= 0.95
+            self.flight_timer -= 1
+            if self.flight_timer <= 0:
+                self.is_flying = False
         
         if self.vel_y > MAX_FALL_SPEED:
             self.vel_y = MAX_FALL_SPEED
@@ -222,14 +302,13 @@ class Mario:
         self.y += self.vel_y
         
         self.on_ground = False
-        
-        # Kiểm tra va chạm với các tile
+
         for row_i, row in enumerate(level_map):
             for col_i, tile in enumerate(row):
                 tile_x = col_i * TILE_SIZE
                 tile_y = row_i * TILE_SIZE
 
-                # Xác định hitbox của tile. Với 'P' (cột xanh), hitbox cao 3 ô và bắt đầu từ tile_y - 2*TILE_SIZE
+
                 if tile == 'P':
                     solid_tx = tile_x
                     solid_ty = tile_y - 2 * TILE_SIZE
@@ -240,10 +319,8 @@ class Mario:
                     solid_ty = tile_y
                     solid_tw = TILE_SIZE
                     solid_th = TILE_SIZE
-                
-                # Kiểm tra va chạm với các tile cứng (đất, cột, thùng, v.v.)
                 if tile in SOLID_TILES:
-                    # Va chạm từ trên (rơi xuống)
+
                     if (self.x + self.width > solid_tx and 
                         self.x < solid_tx + solid_tw and
                         self.y + self.height > solid_ty and 
@@ -252,8 +329,13 @@ class Mario:
                         self.y = solid_ty - self.height
                         self.vel_y = 0
                         self.on_ground = True
-                    
-                    # Va chạm từ dưới (nhảy lên)
+                        if tile == 'H':
+                            self.is_flying = True
+                            self.flight_timer = FPS * 3
+                            level_map[row_i] = level_map[row_i][:col_i] + '.' + level_map[row_i][col_i+1:]
+                            if sound_coin:
+                                sound_coin.play()
+
                     elif (self.x + self.width > solid_tx and 
                           self.x < solid_tx + solid_tw and
                           self.y < solid_ty + solid_th and 
@@ -261,73 +343,83 @@ class Mario:
                           self.vel_y < 0):
                         self.y = solid_ty + solid_th
                         self.vel_y = 0
-                    
-                    # Va chạm từ trái
+                        if tile == 'H':
+                            self.is_flying = True
+                            self.flight_timer = FPS * 3
+                            level_map[row_i] = level_map[row_i][:col_i] + '.' + level_map[row_i][col_i+1:]
+                            if sound_coin:
+                                sound_coin.play()
+
                     elif (self.x + self.width > solid_tx and 
                           self.x + self.width < solid_tx + solid_tw and
                           self.y + self.height > solid_ty and 
                           self.y < solid_ty + solid_th and
                           self.vel_x > 0):
                         self.x = solid_tx - self.width
-                    
-                    # Va chạm từ phải
+                        if tile == 'H':
+                            self.is_flying = True
+                            self.flight_timer = FPS * 3
+                            level_map[row_i] = level_map[row_i][:col_i] + '.' + level_map[row_i][col_i+1:]
+                            if sound_coin:
+                                sound_coin.play()
+
                     elif (self.x > solid_tx and 
                           self.x < solid_tx + solid_tw and
                           self.y + self.height > solid_ty and 
                           self.y < solid_ty + solid_th and
                           self.vel_x < 0):
                         self.x = solid_tx + solid_tw
-                
-                # Kiểm tra va chạm với quái vật
-                if tile == 'V':
-                    if self.check_collision_with_tile(tile_x, tile_y):
-                        # Nếu dẫm từ trên xuống Goomba -> tiêu diệt và +1 mạng
-                        if self.vel_y > 0 and (self.y + self.height - self.vel_y) <= tile_y + 5:
-                            # Xóa Goomba khỏi map
+                        if tile == 'H':
+                            self.is_flying = True
+                            self.flight_timer = FPS * 3
                             level_map[row_i] = level_map[row_i][:col_i] + '.' + level_map[row_i][col_i+1:]
-                            # Nảy lên một chút
-                            self.vel_y = -self.jump_power * 0.5
-                            # Cộng mạng
-                            lives += 1
-                            print(f"✅ Dẫm Goomba tại ({col_i}, {row_i})! +1 mạng. Còn lại: {lives}")
-                            # Âm thanh feedback (tận dụng coin nếu không có âm riêng)
                             if sound_coin:
                                 sound_coin.play()
-                        else:
-                            print(f"💥 Va chạm với Goomba tại ({col_i}, {row_i})!")
-                            if sound_death:
-                                sound_death.play()
-                            return False  # Mất mạng nếu không dẫm từ trên
+                
                 elif tile in ['C', 'A']:
                     if self.check_collision_with_tile(tile_x, tile_y):
                         print(f"💥 Va chạm với quái vật tại ({col_i}, {row_i})!")
                         if sound_death:
                             sound_death.play()
-                        return False  # Trả về False để mất mạng
+                        return False
                 
-                # Kiểm tra nhặt xu hoặc hoa
+
                 if tile in COLLECTIBLE_TILES:
                     if self.check_collision_with_tile(tile_x, tile_y):
-                        if tile == 'X':  # Xu
+                        if tile == 'X':
                             score += 10
                             self.collected_coins += 1
                             print(f"🪙 Nhặt được xu! Tổng: {self.collected_coins}")
-                        elif tile == 'J':  # Hoa
+                        elif tile == 'J': 
                             score += 50
                             print(f"🌸 Nhặt được hoa!")
-                        
+
                         if sound_coin:
                             sound_coin.play()
-                        
-                        # Xóa tile khỏi map
+
                         level_map[row_i] = level_map[row_i][:col_i] + '.' + level_map[row_i][col_i+1:]
         
+        # Entity-based Goomba collisions
+        mario_rect = pygame.Rect(self.x, self.y, self.width, self.height)
+        for g in goombas:
+            if mario_rect.colliderect(g.rect):
+                if self.vel_y > 0 and (self.y + self.height - self.vel_y) <= g.rect.top + 10:
+                    g.is_dead = True
+                    g.dead_timer = 10
+                    self.vel_y = -self.jump_power * 0.5
+                    if sound_coin:
+                        sound_coin.play()
+                else:
+                    print("💥 Va chạm với Goomba!")
+                    if sound_death:
+                        sound_death.play()
+                    return False
+
         if self.x < 0:
             self.x = 0
         if self.x + self.width > MAP_WIDTH:
             self.x = MAP_WIDTH - self.width
-        
-        # Chỉ game over nếu rơi xuống dưới map (không phải ô trống)
+
         if self.y > MAP_HEIGHT + TILE_SIZE:
             return False
         
@@ -337,12 +429,33 @@ class Mario:
         screen_x = self.x - camera_x
         screen_y = self.y - camera_y
         
-        if mario_image:
-            if self.facing_right:
-                surface.blit(mario_image, (screen_x, screen_y))
-            else:
-                flipped_mario = pygame.transform.flip(mario_image, True, False)
-                surface.blit(flipped_mario, (screen_x, screen_y))
+        # Choose sprite based on state
+        on_air = (not self.on_ground) or self.is_flying or abs(self.vel_y) > 0.1
+        if on_air:
+            current_img = mario_jump_frame
+            # reset walk cycle while in air
+            self.anim_index = 0
+            self.anim_timer = 0
+        elif abs(self.vel_x) > 0.01:
+            # walking animation
+            self.anim_timer += 1
+            if self.anim_timer >= self.anim_delay:
+                self.anim_timer = 0
+                self.anim_index = (self.anim_index + 1) % len(mario_walk_frames)
+            current_img = mario_walk_frames[self.anim_index]
+        else:
+            current_img = mario_st_frame
+            self.anim_index = 0
+            self.anim_timer = 0
+
+        if self.facing_right:
+            surface.blit(current_img, (screen_x, screen_y))
+        else:
+            flipped = pygame.transform.flip(current_img, True, False)
+            surface.blit(flipped, (screen_x, screen_y))
+        # Optional: draw a small indicator while flying
+        if self.is_flying:
+            pygame.draw.circle(surface, (255, 255, 0), (int(screen_x + self.width/2), int(screen_y - 6)), 4)
 
 def draw_parallax_background():
     cloud_offset = (camera_x * 0.3) % (SCREEN_WIDTH * 2)
@@ -385,8 +498,6 @@ def draw_map():
                     screen.blit(sprites['thanh_sang'], (x, y))
                 elif tile == 'J':
                     screen.blit(sprites['hoa'], (x, y))
-                elif tile == 'V':
-                    screen.blit(sprites['goombas'], (x, y))
                 elif tile == 'X':
                     screen.blit(sprites['xu'], (x, y))
                 elif tile == 'A':
@@ -435,6 +546,8 @@ def draw_game(mario):
         screen.fill(BLUE)
         draw_parallax_background()
     draw_map()
+    for g in goombas:
+        g.draw(screen, camera_x, camera_y)
     mario.draw(screen, camera_x, camera_y)
     draw_hud()
 
@@ -580,10 +693,16 @@ def update_game(mario):
                 mario.vel_y = 0
                 print(f"⚠️  Mất 1 mạng! Còn lại: {lives}")
         
+        # Update Goombas
+        to_remove = []
+        for g in goombas:
+            if g.update(level_map) == "dead":
+                to_remove.append(g)
+        for g in to_remove:
+            goombas.remove(g)
+
         camera_x = mario.x - SCREEN_WIDTH // 3
         camera_x = max(0, min(camera_x, MAP_WIDTH - SCREEN_WIDTH))
-        
-        # Thắng khi đạt đủ điểm mục tiêu
         if score >= WIN_SCORE:
             current_state = GameState.LEVEL_COMPLETE
             if sound_levelend:
@@ -607,6 +726,17 @@ def draw_frame(mario):
 def main():
     running = True
     mario = Mario(100, 300)
+
+    # Instantiate Goombas from map and clear their tiles
+    for row_i, row in enumerate(level_map):
+        row_list = list(row)
+        for col_i, tile in enumerate(row):
+            if tile == 'V':
+                x = col_i * TILE_SIZE
+                y = row_i * TILE_SIZE
+                goombas.append(Goomba(x, y, (col_i % 2 == 0)))
+                row_list[col_i] = '.'
+        level_map[row_i] = ''.join(row_list)
     
     print("=" * 50)
     print("🎮 MARIO GAME - MAIN LOOP STARTED")

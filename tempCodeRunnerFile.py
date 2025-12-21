@@ -1,2 +1,2 @@
 
-        if mario_image:
+    pygame.display.update()
